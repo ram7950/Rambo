@@ -23,4 +23,3 @@ class MainActivity : Activity() {
         setContentView(text)
     }
 }
-
