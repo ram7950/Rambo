@@ -13,7 +13,7 @@ class MainActivity : Activity() {
 
         val text = TextView(this)
 
-        text.text = "RAMBO\n\nOffline Car Voice Assistant\n\nREADY"
+        text.text = "RAMBO\n\nSTARTED SUCCESSFULLY"
         text.textSize = 24f
         text.setTextColor(Color.WHITE)
         text.setBackgroundColor(Color.BLACK)
