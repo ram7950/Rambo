@@ -411,6 +411,8 @@ class MainActivity : Activity() {
 
                 override fun onError(error: Int) {
 
+                    speechSessionActive = false
+
                     val errorName = when (error) {
                         SpeechRecognizer.ERROR_AUDIO -> "AUDIO"
                         SpeechRecognizer.ERROR_CLIENT -> "CLIENT"
@@ -435,6 +437,8 @@ class MainActivity : Activity() {
                 }
 
                 override fun onResults(results: Bundle?) {
+
+                    speechSessionActive = false
 
                     val matches =
                         results?.getStringArrayList(
@@ -537,7 +541,13 @@ class MainActivity : Activity() {
         )
     }
 
+    private var speechSessionActive = false
+
     private fun startListening() {
+
+        if (speechSessionActive) {
+            return
+        }
 
         if (speechRecognizer == null) {
 
@@ -546,6 +556,8 @@ class MainActivity : Activity() {
 
             return
         }
+
+        speechSessionActive = true
 
         status.text = "STARTING"
         result.text = "Listening..."
