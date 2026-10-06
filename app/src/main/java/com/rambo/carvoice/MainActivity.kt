@@ -426,17 +426,28 @@ class MainActivity : Activity() {
                             SpeechRecognizer.RESULTS_RECOGNITION
                         )
 
-                    result.text =
+                    val spokenText =
                         if (!matches.isNullOrEmpty()) {
                             matches[0]
+                        } else {
+                            ""
+                        }
+
+                    result.text =
+                        if (spokenText.isNotBlank()) {
+                            spokenText
                         } else {
                             "Nothing recognized"
                         }
 
-                    status.text = "IDLE"
+                    status.text = "THINKING"
                     button.isEnabled = true
 
                     resetAvatar()
+
+                    if (spokenText.isNotBlank()) {
+                        handleCommand(spokenText)
+                    }
                 }
 
                 override fun onPartialResults(
@@ -458,6 +469,56 @@ class MainActivity : Activity() {
                     params: Bundle?
                 ) {}
             }
+        )
+    }
+
+    private fun handleCommand(command: String) {
+
+        val text = command.trim().lowercase(Locale.getDefault())
+
+        val response = when {
+            text.contains("hello") ||
+            text.contains("हेलो") ||
+            text.contains("नमस्ते") ->
+                "Hello. Main RAMBO hoon."
+
+            text.contains("kaise ho") ||
+            text.contains("कैसे हो") ->
+                "Main badhiya hoon. Batao, kya karna hai?"
+
+            text.contains("tumhara naam") ||
+            text.contains("aapka naam") ||
+            text.contains("apka naam") ||
+            text.contains("नाम क्या") ->
+                "Mera naam RAMBO hai."
+
+            else ->
+                "Command samajh nahi aayi."
+        }
+
+        speakResponse(response)
+    }
+
+    private fun speakResponse(response: String) {
+
+        runOnUiThread {
+            status.text = "SPEAKING"
+            result.text = response
+        }
+
+        if (!ttsReady || textToSpeech == null) {
+            runOnUiThread {
+                status.text = "IDLE"
+                resetAvatar()
+            }
+            return
+        }
+
+        textToSpeech?.speak(
+            response,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "rambo_response"
         )
     }
 
