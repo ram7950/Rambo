@@ -411,8 +411,23 @@ class MainActivity : Activity() {
 
                 override fun onError(error: Int) {
 
-                    status.text = "IDLE"
-                    result.text = "Ready"
+                    val errorName = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "AUDIO"
+                        SpeechRecognizer.ERROR_CLIENT -> "CLIENT"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "PERMISSION"
+                        SpeechRecognizer.ERROR_NETWORK -> "NETWORK"
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK TIMEOUT"
+                        SpeechRecognizer.ERROR_NO_MATCH -> "NO MATCH"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RECOGNIZER BUSY"
+                        SpeechRecognizer.ERROR_SERVER -> "SERVER"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH TIMEOUT"
+                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "LANGUAGE NOT SUPPORTED"
+                        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "LANGUAGE UNAVAILABLE"
+                        else -> "UNKNOWN"
+                    }
+
+                    status.text = "STT ERROR $error"
+                    result.text = errorName
 
                     button.isEnabled = true
 
