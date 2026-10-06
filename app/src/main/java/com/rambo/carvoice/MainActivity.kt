@@ -495,27 +495,102 @@ class MainActivity : Activity() {
 
         val text = command.trim().lowercase(Locale.getDefault())
 
-        val response = when {
+        when {
+
+            // GREETING
             text.contains("hello") ||
-            text.contains("हेलो") ||
-            text.contains("नमस्ते") ->
-                "Hello. Main RAMBO hoon."
+            text.contains("hi") ||
+            text.contains("hey") -> {
+                speakResponse("Hello. Main RAMBO hoon.")
+            }
 
-            text.contains("kaise ho") ||
-            text.contains("कैसे हो") ->
-                "Main badhiya hoon. Batao, kya karna hai?"
+            // HOW ARE YOU
+            text.contains("how are you") ||
+            text.contains("how r you") -> {
+                speakResponse("I am doing great. Tell me what you need.")
+            }
 
-            text.contains("tumhara naam") ||
-            text.contains("aapka naam") ||
-            text.contains("apka naam") ||
-            text.contains("नाम क्या") ->
-                "Mera naam RAMBO hai."
+            // NAME
+            text.contains("your name") ||
+            text.contains("what is your name") -> {
+                speakResponse("My name is RAMBO.")
+            }
 
-            else ->
-                "Command samajh nahi aayi."
+            // OPEN CHROME
+            text.contains("open chrome") ||
+            text.contains("launch chrome") ||
+            (text.contains("chrome") && text.contains("open")) -> {
+                openApp(
+                    "com.android.chrome",
+                    "Chrome"
+                )
+            }
+
+            // OPEN YOUTUBE
+            text.contains("open youtube") ||
+            text.contains("launch youtube") ||
+            (text.contains("youtube") && text.contains("open")) -> {
+                openApp(
+                    "com.google.android.youtube",
+                    "YouTube"
+                )
+            }
+
+            // BACK
+            text == "go back" ||
+            text.contains("go back") ||
+            text.contains("back") -> {
+                onBackPressedDispatcher.onBackPressed()
+                speakResponse("Going back.")
+            }
+
+            // HOME
+            text == "go home" ||
+            text.contains("go to home") ||
+            text.contains("home screen") -> {
+                val homeIntent =
+                    Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                startActivity(homeIntent)
+                speakResponse("Going home.")
+            }
+
+            // TIME
+            text.contains("what time") ||
+            text.contains("current time") ||
+            text.contains("tell me the time") -> {
+                val time = java.text.SimpleDateFormat(
+                    "h:mm a",
+                    Locale.getDefault()
+                ).format(java.util.Date())
+
+                speakResponse("The time is $time.")
+            }
+
+            // UNKNOWN
+            else -> {
+                speakResponse(
+                    "I heard you, but I don't know that command yet."
+                )
+            }
         }
+    }
 
-        speakResponse(response)
+    private fun openApp(
+        packageName: String,
+        appName: String
+    ) {
+        val launchIntent =
+            packageManager.getLaunchIntentForPackage(packageName)
+
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+            speakResponse("$appName is opening.")
+        } else {
+            speakResponse("$appName is not available.")
+        }
     }
 
     private fun speakResponse(response: String) {
@@ -543,7 +618,8 @@ class MainActivity : Activity() {
 
     private var speechSessionActive = false
 
-    private fun startListening() {
+
+private fun startListening() {
 
         if (speechSessionActive) {
             return
