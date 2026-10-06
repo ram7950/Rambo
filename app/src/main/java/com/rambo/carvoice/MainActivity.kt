@@ -574,7 +574,7 @@ class MainActivity : Activity() {
 
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE,
-                    "en-IN"
+                    "hi-IN"
                 )
 
                 putExtra(
