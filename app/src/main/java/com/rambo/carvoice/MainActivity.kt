@@ -13,6 +13,9 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
 import android.view.Gravity
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -23,6 +26,9 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private var speechRecognizer: SpeechRecognizer? = null
+    private var textToSpeech: TextToSpeech? = null
+    private var ttsReady = false
+    private var greetingPending = false
 
     private lateinit var avatar: TextView
     private lateinit var status: TextView
@@ -38,6 +44,7 @@ class MainActivity : Activity() {
 
         buildUi()
         startIdleAnimation()
+        initializeTextToSpeech()
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
@@ -257,16 +264,100 @@ class MainActivity : Activity() {
         startIdleAnimation()
     }
 
+    private fun initializeTextToSpeech() {
+
+        textToSpeech = TextToSpeech(this) { resultCode ->
+
+            if (resultCode == TextToSpeech.SUCCESS) {
+
+                val result = textToSpeech?.setLanguage(Locale.US)
+
+                ttsReady =
+                    result != TextToSpeech.LANG_MISSING_DATA &&
+                    result != TextToSpeech.LANG_NOT_SUPPORTED
+
+                textToSpeech?.setSpeechRate(0.92f)
+                textToSpeech?.setPitch(1.0f)
+
+                textToSpeech?.setOnUtteranceProgressListener(
+                    object : UtteranceProgressListener() {
+
+                        override fun onStart(utteranceId: String?) {
+
+                            runOnUiThread {
+                                status.text = "SPEAKING"
+                                result.text = "Hi, I am RAMBO"
+                            }
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+
+                            runOnUiThread {
+
+                                if (utteranceId == "rambo_greeting") {
+
+                                    status.text = "READY"
+
+                                    window.decorView.postDelayed({
+                                        startListening()
+                                    }, 350)
+                                }
+                            }
+                        }
+
+                        override fun onError(utteranceId: String?) {
+
+                            runOnUiThread {
+
+                                status.text = "READY"
+
+                                window.decorView.postDelayed({
+                                    startListening()
+                                }, 350)
+                            }
+                        }
+                    }
+                )
+
+                if (greetingPending) {
+                    greetingPending = false
+                    speakGreeting()
+                }
+
+            } else {
+
+                ttsReady = false
+                status.text = "TTS UNAVAILABLE"
+
+                // Continue to voice input even if TTS is unavailable.
+                window.decorView.postDelayed({
+                    startListening()
+                }, 500)
+            }
+        }
+    }
+
     private fun speakGreeting() {
 
         status.text = "READY"
         result.text = "Hi, I am RAMBO"
 
-        // Testing version:
-        // Greeting is shown first, then listening starts automatically.
-        window.decorView.postDelayed({
-            startListening()
-        }, 1200)
+        if (!ttsReady) {
+
+            greetingPending = true
+            status.text = "STARTING VOICE"
+
+            return
+        }
+
+        textToSpeech?.stop()
+
+        textToSpeech?.speak(
+            "Hi, I am RAMBO",
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "rambo_greeting"
+        )
     }
 
     private fun setupSpeechRecognizer() {
@@ -451,6 +542,10 @@ class MainActivity : Activity() {
 
         speechRecognizer?.destroy()
         speechRecognizer = null
+
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
 
         super.onDestroy()
     }
