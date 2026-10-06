@@ -286,7 +286,7 @@ class MainActivity : Activity() {
 
                             runOnUiThread {
                                 status.text = "SPEAKING"
-                                result.text = "Hi, I am RAMBO"
+                                this@MainActivity.result.text = "Hi, I am RAMBO"
                             }
                         }
 
