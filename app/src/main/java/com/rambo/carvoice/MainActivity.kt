@@ -540,7 +540,7 @@ class MainActivity : Activity() {
             text == "go back" ||
             text.contains("go back") ||
             text.contains("back") -> {
-                onBackPressedDispatcher.onBackPressed()
+                onBackPressed()
                 speakResponse("Going back.")
             }
 
