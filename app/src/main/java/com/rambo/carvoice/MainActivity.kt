@@ -1,8 +1,5 @@
 package com.rambo.carvoice
 
-import com.rambo.carvoice.command.Command
-import com.rambo.carvoice.command.CommandEngine
-
 import android.Manifest
 import android.animation.ArgbEvaluator
 import android.animation.ObjectAnimator
@@ -13,16 +10,21 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import com.rambo.carvoice.voice.VoskSpeechEngine
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import java.util.Locale
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.rambo.carvoice.command.Command
+import com.rambo.carvoice.command.CommandEngine
+import com.rambo.carvoice.voice.VoskSpeechEngine
+import java.util.Locale
+
 
 class MainActivity : Activity() {
 
@@ -42,8 +44,49 @@ class MainActivity : Activity() {
 
     private var avatarAnimator: ObjectAnimator? = null
 
+    // RAMBO background / steering interaction state
+    private var bootGreetingMode = false
+    private var steeringListeningRequested = false
+
+    // Floating RAMBO overlay
+    private var overlayView: TextView? = null
+    private var overlayWindowManager: WindowManager? = null
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+
+        if (intent?.action == "com.rambo.carvoice.STEERING_MIC") {
+            setIntent(intent)
+            steeringListeningRequested = true
+            bootGreetingMode = false
+
+            showRamboOverlay("LISTENING")
+
+            if (::voskSpeechEngine.isInitialized &&
+                voskSpeechEngine.isReady()) {
+
+                startListening()
+
+                window.decorView.postDelayed({
+                    moveTaskToBack(true)
+                }, 150)
+            }
+
+            return
+        }
+
+        if (intent?.action == "com.rambo.carvoice.BOOT") {
+            setIntent(intent)
+            bootGreetingMode = true
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        bootGreetingMode = intent?.action == "com.rambo.carvoice.BOOT"
+        steeringListeningRequested =
+            intent?.action == "com.rambo.carvoice.STEERING_MIC"
 
         buildUi()
         startIdleAnimation()
@@ -60,10 +103,32 @@ class MainActivity : Activity() {
         } else {
             setupVoskSpeechEngine()
 
-            // RAMBO launch interaction
-            window.decorView.postDelayed({
-                speakGreeting()
-            }, 900)
+            if (steeringListeningRequested) {
+                // Steering-button launch: no greeting.
+                // Wait briefly for the offline STT engine to initialize.
+                window.decorView.postDelayed({
+                    if (::voskSpeechEngine.isInitialized &&
+                        voskSpeechEngine.isReady()) {
+
+                        showRamboOverlay("LISTENING")
+                        startListening()
+
+                        window.decorView.postDelayed({
+                            moveTaskToBack(true)
+                        }, 150)
+
+                    } else {
+                        // setupVoskSpeechEngine() will retry from its
+                        // STT READY callback below.
+                    }
+                }, 700)
+
+            } else {
+                // Normal/boot launch: greeting only.
+                window.decorView.postDelayed({
+                    speakGreeting()
+                }, 900)
+            }
         }
     }
 
@@ -301,9 +366,14 @@ class MainActivity : Activity() {
 
                                     status.text = "READY"
 
-                                    window.decorView.postDelayed({
-                                        startListening()
-                                    }, 350)
+                                    // Greeting is initialization only.
+                                    // Do not automatically open the microphone.
+                                    if (!bootGreetingMode &&
+                                        !steeringListeningRequested) {
+                                        window.decorView.postDelayed({
+                                            startListening()
+                                        }, 350)
+                                    }
                                 }
                             }
                         }
@@ -332,10 +402,12 @@ class MainActivity : Activity() {
                 ttsReady = false
                 status.text = "TTS UNAVAILABLE"
 
-                // Continue to voice input even if TTS is unavailable.
-                window.decorView.postDelayed({
-                    startListening()
-                }, 500)
+                // Do not automatically open microphone during boot.
+                if (!bootGreetingMode && !steeringListeningRequested) {
+                    window.decorView.postDelayed({
+                        startListening()
+                    }, 500)
+                }
             }
         }
     }
@@ -402,6 +474,18 @@ class MainActivity : Activity() {
                                 status.text = "READY"
                                 result.text = "RAMBO is ready"
                                 button.isEnabled = true
+
+                                if (steeringListeningRequested &&
+                                    !speechSessionActive) {
+
+                                    steeringListeningRequested = false
+                                    showRamboOverlay("LISTENING")
+                                    startListening()
+
+                                    window.decorView.postDelayed({
+                                        moveTaskToBack(true)
+                                    }, 150)
+                                }
                             }
 
                             message == "LISTENING" -> {
@@ -580,6 +664,82 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showRamboOverlay(state: String) {
+
+        if (android.os.Build.VERSION.SDK_INT >=
+            android.os.Build.VERSION_CODES.M) {
+
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                return
+            }
+        }
+
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        overlayWindowManager = wm
+
+        if (overlayView == null) {
+
+            val view = TextView(this).apply {
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(30, 18, 30, 18)
+                gravity = Gravity.CENTER
+                setBackgroundColor(Color.argb(225, 8, 12, 18))
+                elevation = 20f
+                alpha = 0f
+            }
+
+            overlayView = view
+
+            val type =
+                if (android.os.Build.VERSION.SDK_INT >=
+                    android.os.Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    WindowManager.LayoutParams.TYPE_PHONE
+                }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                android.graphics.PixelFormat.TRANSLUCENT
+            )
+
+            params.gravity =
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            params.y = 45
+
+            try {
+                wm.addView(view, params)
+            } catch (_: Exception) {
+                overlayView = null
+                return
+            }
+        }
+
+        overlayView?.text = "◉  RAMBO  •  $state"
+
+        overlayView?.animate()
+            ?.alpha(1f)
+            ?.setDuration(180)
+            ?.start()
+    }
+
+    private fun hideRamboOverlay() {
+
+        val view = overlayView ?: return
+
+        try {
+            overlayWindowManager?.removeView(view)
+        } catch (_: Exception) {
+        }
+
+        overlayView = null
+    }
+
     private fun speakResponse(response: String) {
 
         runOnUiThread {
@@ -664,6 +824,7 @@ private fun startListening() {
     override fun onDestroy() {
 
         avatarAnimator?.cancel()
+        hideRamboOverlay()
 
         if (::voskSpeechEngine.isInitialized) {
             voskSpeechEngine.release()
