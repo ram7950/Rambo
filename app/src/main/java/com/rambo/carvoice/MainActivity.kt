@@ -10,9 +10,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import com.rambo.carvoice.voice.VoskSpeechEngine
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
@@ -25,7 +23,7 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private lateinit var voskSpeechEngine: VoskSpeechEngine
     private var textToSpeech: TextToSpeech? = null
     private var ttsReady = false
     private var greetingPending = false
@@ -55,7 +53,7 @@ class MainActivity : Activity() {
             )
 
         } else {
-            setupSpeechRecognizer()
+            setupVoskSpeechEngine()
 
             // RAMBO launch interaction
             window.decorView.postDelayed({
@@ -360,135 +358,67 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun setupSpeechRecognizer() {
+    private fun setupVoskSpeechEngine() {
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            status.text = "UNAVAILABLE"
-            result.text = "Speech recognition unavailable"
-            button.isEnabled = false
-            return
-        }
+        if (!::voskSpeechEngine.isInitialized) {
+            voskSpeechEngine = VoskSpeechEngine(
+                this,
+                onResult = { spokenText ->
+                    runOnUiThread {
+                        speechSessionActive = false
 
-        speechRecognizer =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-
-            } else {
-
-                status.text = "ANDROID 12+ REQUIRED"
-                button.isEnabled = false
-                return
-            }
-
-        speechRecognizer?.setRecognitionListener(
-            object : RecognitionListener {
-
-                override fun onReadyForSpeech(params: Bundle?) {
-
-                    status.text = "LISTENING"
-                    result.text = "I'm listening..."
-
-                    setListeningAnimation()
-
-                    button.isEnabled = false
-                }
-
-                override fun onBeginningOfSpeech() {
-
-                    status.text = "HEARING YOU"
-                }
-
-                override fun onRmsChanged(rmsdB: Float) {}
-
-                override fun onBufferReceived(buffer: ByteArray?) {}
-
-                override fun onEndOfSpeech() {
-
-                    status.text = "THINKING"
-                    setThinkingAnimation()
-                }
-
-                override fun onError(error: Int) {
-
-                    speechSessionActive = false
-
-                    val errorName = when (error) {
-                        SpeechRecognizer.ERROR_AUDIO -> "AUDIO"
-                        SpeechRecognizer.ERROR_CLIENT -> "CLIENT"
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "PERMISSION"
-                        SpeechRecognizer.ERROR_NETWORK -> "NETWORK"
-                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK TIMEOUT"
-                        SpeechRecognizer.ERROR_NO_MATCH -> "NO MATCH"
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RECOGNIZER BUSY"
-                        SpeechRecognizer.ERROR_SERVER -> "SERVER"
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH TIMEOUT"
-                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "LANGUAGE NOT SUPPORTED"
-                        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "LANGUAGE UNAVAILABLE"
-                        else -> "UNKNOWN"
-                    }
-
-                    status.text = "STT ERROR $error"
-                    result.text = errorName
-
-                    button.isEnabled = true
-
-                    resetAvatar()
-                }
-
-                override fun onResults(results: Bundle?) {
-
-                    speechSessionActive = false
-
-                    val matches =
-                        results?.getStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION
-                        )
-
-                    val spokenText =
-                        if (!matches.isNullOrEmpty()) {
-                            matches[0]
-                        } else {
-                            ""
-                        }
-
-                    result.text =
                         if (spokenText.isNotBlank()) {
-                            spokenText
-                        } else {
-                            "Nothing recognized"
+                            result.text = spokenText
+                            status.text = "THINKING"
+                            setThinkingAnimation()
+                            handleCommand(spokenText)
                         }
 
-                    status.text = "THINKING"
-                    button.isEnabled = true
+                        button.isEnabled = true
+                    }
+                },
+                onStatus = { message ->
+                    runOnUiThread {
+                        when {
+                            message == "LOADING STT" -> {
+                                status.text = "LOADING STT"
+                                result.text = "Preparing offline voice engine..."
+                                button.isEnabled = false
+                            }
 
-                    resetAvatar()
+                            message == "STT READY" -> {
+                                status.text = "READY"
+                                result.text = "RAMBO is ready"
+                                button.isEnabled = true
+                            }
 
-                    if (spokenText.isNotBlank()) {
-                        handleCommand(spokenText)
+                            message == "LISTENING" -> {
+                                status.text = "LISTENING"
+                                result.text = "I'm listening..."
+                                setListeningAnimation()
+                                button.isEnabled = false
+                            }
+
+                            message.startsWith("STT ERROR") -> {
+                                status.text = "STT ERROR"
+                                result.text = message
+                                button.isEnabled = true
+                                speechSessionActive = false
+                                resetAvatar()
+                            }
+
+                            message.startsWith("MIC ERROR") -> {
+                                status.text = "MIC ERROR"
+                                result.text = message
+                                button.isEnabled = true
+                                speechSessionActive = false
+                                resetAvatar()
+                            }
+                        }
                     }
                 }
-
-                override fun onPartialResults(
-                    partialResults: Bundle?
-                ) {
-
-                    val matches =
-                        partialResults?.getStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION
-                        )
-
-                    if (!matches.isNullOrEmpty()) {
-                        result.text = matches[0]
-                    }
-                }
-
-                override fun onEvent(
-                    eventType: Int,
-                    params: Bundle?
-                ) {}
-            }
-        )
+            )
+        }
     }
 
     private fun handleCommand(command: String) {
@@ -625,11 +555,9 @@ private fun startListening() {
             return
         }
 
-        if (speechRecognizer == null) {
-
-            status.text = "VOICE UNAVAILABLE"
-            result.text = "Speech recognizer unavailable"
-
+        if (!voskSpeechEngine.isReady()) {
+            status.text = "STT NOT READY"
+            result.text = "Offline voice engine is still loading..."
             return
         }
 
@@ -640,31 +568,7 @@ private fun startListening() {
 
         setListeningAnimation()
 
-        val intent =
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                )
-
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE,
-                    "hi-IN"
-                )
-
-                putExtra(
-                    RecognizerIntent.EXTRA_PARTIAL_RESULTS,
-                    true
-                )
-
-                putExtra(
-                    RecognizerIntent.EXTRA_PREFER_OFFLINE,
-                    true
-                )
-            }
-
-        speechRecognizer?.startListening(intent)
+        voskSpeechEngine.startListening()
     }
 
     override fun onRequestPermissionsResult(
@@ -685,7 +589,7 @@ private fun startListening() {
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
 
-            setupSpeechRecognizer()
+            setupVoskSpeechEngine()
 
             window.decorView.postDelayed({
                 speakGreeting()
@@ -704,8 +608,9 @@ private fun startListening() {
 
         avatarAnimator?.cancel()
 
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        if (::voskSpeechEngine.isInitialized) {
+            voskSpeechEngine.release()
+        }
 
         textToSpeech?.stop()
         textToSpeech?.shutdown()
