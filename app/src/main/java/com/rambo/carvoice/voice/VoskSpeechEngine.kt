@@ -22,6 +22,7 @@ class VoskSpeechEngine(
     private var recordingThread: Thread? = null
     private var listening = false
     private var ready = false
+    private var resultDelivered = false
 
     companion object {
         private const val SAMPLE_RATE = 16000
@@ -106,6 +107,8 @@ class VoskSpeechEngine(
         }
 
         try {
+            resultDelivered = false
+
             val minBuffer =
                 AudioRecord.getMinBufferSize(
                     SAMPLE_RATE,
@@ -145,12 +148,21 @@ class VoskSpeechEngine(
                                 count
                             ) ?: false
 
-                        if (accepted) {
+                        if (accepted && !resultDelivered) {
                             val text = extractText(
                                 recognizer?.result
                             )
 
                             if (text.isNotBlank()) {
+                                resultDelivered = true
+
+                                listening = false
+
+                                try {
+                                    audioRecord?.stop()
+                                } catch (_: Exception) {
+                                }
+
                                 onResult(text)
                             }
                         }
@@ -170,6 +182,7 @@ class VoskSpeechEngine(
         }
 
         listening = false
+        resultDelivered = false
 
         try {
             audioRecord?.stop()
