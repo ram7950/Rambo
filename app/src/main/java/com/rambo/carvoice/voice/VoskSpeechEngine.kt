@@ -163,6 +163,7 @@ class VoskSpeechEngine(
                                 } catch (_: Exception) {
                                 }
 
+                                onStatus("HEARD: $text")
                                 onResult(text)
                             }
                         }
