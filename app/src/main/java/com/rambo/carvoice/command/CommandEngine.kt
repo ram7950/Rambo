@@ -19,12 +19,10 @@ class CommandEngine {
         }
 
         val normalized = normalize(raw)
-
         val parts = splitCommands(normalized)
 
         return parts.map { parseSingle(it, raw) }
     }
-
 
     fun debugParse(input: String): String {
 
@@ -32,7 +30,7 @@ class CommandEngine {
 
         return parsed.mapIndexed { index, item ->
             "${index + 1}. ${item.command} -> ${item.entity ?: "-"} (${item.confidence})"
-        }.joinToString("\\n")
+        }.joinToString("\n")
     }
 
     private fun normalize(input: String): String {
@@ -40,8 +38,11 @@ class CommandEngine {
         return input
             .lowercase(Locale.getDefault())
             .replace(Regex("[,;]+"), " ")
-            .replace(Regex("\b(please|could you|can you|would you|hey rambo|rambo)\b"), " ")
-            .replace(Regex("\s+"), " ")
+            .replace(
+                Regex("\\b(please|could you|can you|would you|hey rambo|rambo)\\b"),
+                " "
+            )
+            .replace(Regex("\\s+"), " ")
             .trim()
     }
 
@@ -50,7 +51,7 @@ class CommandEngine {
         val result = input
             .split(
                 Regex(
-                    "\s+(?:and then|then|after that|also|and)\s+"
+                    "\\s+(?:and then|then|after that|also|and)\\s+"
                 )
             )
             .map { it.trim() }
