@@ -16,6 +16,12 @@ android {
         jvmTarget = '21'
     }
 
+    packaging {
+        jniLibs {
+            keepDebugSymbols += ['**/*.so']
+        }
+    }
+
     defaultConfig {
         applicationId 'com.rambo.carvoice'
         minSdk 26
