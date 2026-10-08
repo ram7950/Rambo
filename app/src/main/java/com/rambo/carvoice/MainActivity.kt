@@ -1,5 +1,8 @@
 package com.rambo.carvoice
 
+import com.rambo.carvoice.command.Command
+import com.rambo.carvoice.command.CommandEngine
+
 import android.Manifest
 import android.animation.ArgbEvaluator
 import android.animation.ObjectAnimator
@@ -22,6 +25,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 class MainActivity : Activity() {
+
+    private val commandEngine = CommandEngine()
 
     private lateinit var voskSpeechEngine: VoskSpeechEngine
     private var textToSpeech: TextToSpeech? = null
@@ -368,10 +373,17 @@ class MainActivity : Activity() {
                         speechSessionActive = false
 
                         if (spokenText.isNotBlank()) {
-                            result.text = spokenText
+                            result.text = "HEARD: $spokenText"
                             status.text = "THINKING"
                             setThinkingAnimation()
-                            handleCommand(spokenText)
+
+                            val parsedCommands = commandEngine.parse(spokenText)
+
+                            result.text = parsedCommands.joinToString("\n") {
+                                "PARSED: ${it.command} -> ${it.entity ?: "-"}"
+                            }
+
+                            executeParsedCommands(parsedCommands)
                         }
 
                         button.isEnabled = true
@@ -418,6 +430,51 @@ class MainActivity : Activity() {
                     }
                 }
             )
+        }
+    }
+
+    private fun executeParsedCommands(commands: List<com.rambo.carvoice.command.ParsedCommand>) {
+        for (parsed in commands) {
+            when (parsed.command) {
+                Command.OPEN_APP -> {
+                    when (parsed.entity?.lowercase()) {
+                        "chrome" -> openApp("com.android.chrome", "Chrome")
+                        "youtube" -> openApp("com.google.android.youtube", "YouTube")
+                        else -> speakResponse("I don't know that app yet.")
+                    }
+                }
+
+                Command.GO_HOME -> {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(homeIntent)
+                    speakResponse("Going home.")
+                }
+
+                Command.GO_BACK -> {
+                    onBackPressed()
+                    speakResponse("Going back.")
+                }
+
+                Command.GET_TIME -> {
+                    val time = java.text.SimpleDateFormat(
+                        "h:mm a",
+                        Locale.getDefault()
+                    ).format(java.util.Date())
+
+                    speakResponse("The time is $time.")
+                }
+
+                Command.GREETING -> {
+                    speakResponse("Hello. Main RAMBO hoon.")
+                }
+
+                Command.UNKNOWN -> {
+                    speakResponse("I heard you, but I don't know that command yet.")
+                }
+            }
         }
     }
 

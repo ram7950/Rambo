@@ -164,6 +164,7 @@ class VoskSpeechEngine(
                                 }
 
                                 onStatus("HEARD: $text")
+                                onStatus("HEARD: $text")
                                 onResult(text)
                             }
                         }
