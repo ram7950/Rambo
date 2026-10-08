@@ -47,6 +47,8 @@ class MainActivity : Activity() {
     // RAMBO background / steering interaction state
     private var bootGreetingMode = false
     private var steeringListeningRequested = false
+    private var ramboInitialized = false
+    private var overlayPermissionRequested = false
 
     // Floating RAMBO overlay
     private var overlayView: TextView? = null
@@ -59,19 +61,7 @@ class MainActivity : Activity() {
             setIntent(intent)
             steeringListeningRequested = true
             bootGreetingMode = false
-
-            showRamboOverlay("LISTENING")
-
-            if (::voskSpeechEngine.isInitialized &&
-                voskSpeechEngine.isReady()) {
-
-                startListening()
-
-                window.decorView.postDelayed({
-                    moveTaskToBack(true)
-                }, 150)
-            }
-
+            beginSteeringListening()
             return
         }
 
@@ -85,8 +75,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         bootGreetingMode = intent?.action == "com.rambo.carvoice.BOOT"
+
+        val prefs = getSharedPreferences("rambo_state", MODE_PRIVATE)
+        ramboInitialized = prefs.getBoolean("initialized", false)
+
         steeringListeningRequested =
-            intent?.action == "com.rambo.carvoice.STEERING_MIC"
+            intent?.action == "com.rambo.carvoice.STEERING_MIC" ||
+            (!bootGreetingMode && ramboInitialized)
 
         buildUi()
         startIdleAnimation()
@@ -104,27 +99,14 @@ class MainActivity : Activity() {
             setupVoskSpeechEngine()
 
             if (steeringListeningRequested) {
-                // Steering-button launch: no greeting.
-                // Wait briefly for the offline STT engine to initialize.
+                // Subsequent RAMBO launches are treated as steering-button
+                // interactions. Never greet again.
                 window.decorView.postDelayed({
-                    if (::voskSpeechEngine.isInitialized &&
-                        voskSpeechEngine.isReady()) {
-
-                        showRamboOverlay("LISTENING")
-                        startListening()
-
-                        window.decorView.postDelayed({
-                            moveTaskToBack(true)
-                        }, 150)
-
-                    } else {
-                        // setupVoskSpeechEngine() will retry from its
-                        // STT READY callback below.
-                    }
+                    beginSteeringListening()
                 }, 700)
 
             } else {
-                // Normal/boot launch: greeting only.
+                // First normal/boot launch: greeting only.
                 window.decorView.postDelayed({
                     speakGreeting()
                 }, 900)
@@ -367,13 +349,16 @@ class MainActivity : Activity() {
                                     status.text = "READY"
 
                                     // Greeting is initialization only.
-                                    // Do not automatically open the microphone.
-                                    if (!bootGreetingMode &&
-                                        !steeringListeningRequested) {
-                                        window.decorView.postDelayed({
-                                            startListening()
-                                        }, 350)
-                                    }
+                                    // Never automatically open the microphone.
+                                    getSharedPreferences(
+                                        "rambo_state",
+                                        MODE_PRIVATE
+                                    ).edit()
+                                        .putBoolean("initialized", true)
+                                        .apply()
+
+                                    ramboInitialized = true
+                                    steeringListeningRequested = false
                                 }
                             }
                         }
@@ -383,10 +368,6 @@ class MainActivity : Activity() {
                             runOnUiThread {
 
                                 status.text = "READY"
-
-                                window.decorView.postDelayed({
-                                    startListening()
-                                }, 350)
                             }
                         }
                     }
@@ -402,12 +383,67 @@ class MainActivity : Activity() {
                 ttsReady = false
                 status.text = "TTS UNAVAILABLE"
 
-                // Do not automatically open microphone during boot.
-                if (!bootGreetingMode && !steeringListeningRequested) {
-                    window.decorView.postDelayed({
-                        startListening()
-                    }, 500)
+                // Do not automatically open microphone.
+                // Listening starts only from an explicit user interaction.
+            }
+        }
+    }
+
+    private fun beginSteeringListening() {
+
+        steeringListeningRequested = true
+        bootGreetingMode = false
+
+        if (android.os.Build.VERSION.SDK_INT >=
+            android.os.Build.VERSION_CODES.M) {
+
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+
+                overlayPermissionRequested = true
+
+                try {
+                    val intent = Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    overlayPermissionRequested = false
                 }
+
+                return
+            }
+        }
+
+        overlayPermissionRequested = false
+        showRamboOverlay("LISTENING")
+
+        if (::voskSpeechEngine.isInitialized &&
+            voskSpeechEngine.isReady()) {
+
+            startListening()
+
+            window.decorView.postDelayed({
+                moveTaskToBack(true)
+            }, 150)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        if (overlayPermissionRequested &&
+            steeringListeningRequested) {
+
+            if (android.os.Build.VERSION.SDK_INT <
+                android.os.Build.VERSION_CODES.M ||
+                android.provider.Settings.canDrawOverlays(this)) {
+
+                overlayPermissionRequested = false
+
+                window.decorView.postDelayed({
+                    beginSteeringListening()
+                }, 250)
             }
         }
     }
@@ -478,13 +514,7 @@ class MainActivity : Activity() {
                                 if (steeringListeningRequested &&
                                     !speechSessionActive) {
 
-                                    steeringListeningRequested = false
-                                    showRamboOverlay("LISTENING")
-                                    startListening()
-
-                                    window.decorView.postDelayed({
-                                        moveTaskToBack(true)
-                                    }, 150)
+                                    beginSteeringListening()
                                 }
                             }
 
