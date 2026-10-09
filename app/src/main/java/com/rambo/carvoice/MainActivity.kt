@@ -8,6 +8,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -34,6 +35,10 @@ class MainActivity : Activity() {
     private var textToSpeech: TextToSpeech? = null
     private var ttsReady = false
     private var greetingPending = false
+    private var responseUtteranceCounter = 0L
+    private val pendingResponseIds = mutableSetOf<String>()
+    private var volumeBeforeMute: Int? = null
+
 
     private lateinit var avatar: TextView
     private lateinit var status: TextView
@@ -333,10 +338,8 @@ class MainActivity : Activity() {
                     object : UtteranceProgressListener() {
 
                         override fun onStart(utteranceId: String?) {
-
                             runOnUiThread {
                                 status.text = "SPEAKING"
-                                this@MainActivity.result.text = "Hi, I am RAMBO"
                             }
                         }
 
@@ -345,11 +348,9 @@ class MainActivity : Activity() {
                             runOnUiThread {
 
                                 if (utteranceId == "rambo_greeting") {
-
                                     status.text = "READY"
 
                                     // Greeting is initialization only.
-                                    // Never automatically open the microphone.
                                     getSharedPreferences(
                                         "rambo_state",
                                         MODE_PRIVATE
@@ -359,15 +360,25 @@ class MainActivity : Activity() {
 
                                     ramboInitialized = true
                                     steeringListeningRequested = false
+                                } else if (utteranceId != null) {
+                                    pendingResponseIds.remove(utteranceId)
+                                    if (pendingResponseIds.isEmpty()) {
+                                        status.text = "READY"
+                                        resetAvatar()
+                                    }
                                 }
                             }
                         }
 
                         override fun onError(utteranceId: String?) {
-
                             runOnUiThread {
-
-                                status.text = "READY"
+                                if (utteranceId != null) {
+                                    pendingResponseIds.remove(utteranceId)
+                                }
+                                if (pendingResponseIds.isEmpty()) {
+                                    status.text = "READY"
+                                    resetAvatar()
+                                }
                             }
                         }
                     }
@@ -548,16 +559,24 @@ class MainActivity : Activity() {
     }
 
     private fun executeParsedCommands(commands: List<com.rambo.carvoice.command.ParsedCommand>) {
+        // Queue spoken replies so later commands do not interrupt earlier responses.
         for (parsed in commands) {
             when (parsed.command) {
                 Command.OPEN_APP -> {
-                    when (parsed.entity?.lowercase()) {
+                    when (parsed.entity?.lowercase(Locale.ROOT)) {
                         "chrome" -> openApp("com.android.chrome", "Chrome")
                         "youtube" -> openApp("com.google.android.youtube", "YouTube")
+                        "settings" -> {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                                speakResponse("Opening Settings.")
+                            } catch (_: Exception) {
+                                speakResponse("Settings could not be opened.")
+                            }
+                        }
                         else -> speakResponse("I don't know that app yet.")
                     }
                 }
-
                 Command.GO_HOME -> {
                     val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                         addCategory(Intent.CATEGORY_HOME)
@@ -566,117 +585,85 @@ class MainActivity : Activity() {
                     startActivity(homeIntent)
                     speakResponse("Going home.")
                 }
-
                 Command.GO_BACK -> {
                     onBackPressed()
                     speakResponse("Going back.")
                 }
-
                 Command.GET_TIME -> {
-                    val time = java.text.SimpleDateFormat(
-                        "h:mm a",
-                        Locale.getDefault()
-                    ).format(java.util.Date())
-
+                    val time = java.text.SimpleDateFormat("h:mm a", Locale.getDefault())
+                        .format(java.util.Date())
                     speakResponse("The time is $time.")
                 }
-
-                Command.GREETING -> {
-                    speakResponse("Hello. Main RAMBO hoon.")
+                Command.GET_DATE -> {
+                    val date = java.text.SimpleDateFormat("EEEE, d MMMM", Locale.getDefault())
+                        .format(java.util.Date())
+                    speakResponse("Today is $date.")
                 }
-
-                Command.UNKNOWN -> {
-                    speakResponse("I heard you, but I don't know that command yet.")
-                }
+                Command.GREETING -> speakResponse("Hello. Main RAMBO hoon.")
+                Command.HOW_ARE_YOU -> speakResponse("I am doing great. Tell me what you need.")
+                Command.GET_NAME -> speakResponse("My name is RAMBO.")
+                Command.VOLUME_UP -> changeMusicVolume(1)
+                Command.VOLUME_DOWN -> changeMusicVolume(-1)
+                Command.VOLUME_SET -> setMusicVolumePercent(parsed.entity?.toIntOrNull() ?: 0)
+                Command.VOLUME_MUTE -> muteMusicVolume()
+                Command.VOLUME_UNMUTE -> unmuteMusicVolume()
+                Command.UNKNOWN -> speakResponse("I heard you, but I don't know that command yet.")
             }
         }
     }
 
-    private fun handleCommand(command: String) {
+    private fun muteMusicVolume() {
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        val stream = AudioManager.STREAM_MUSIC
+        val current = audio.getStreamVolume(stream)
 
-        val text = command.trim().lowercase(Locale.getDefault())
-
-        when {
-
-            // GREETING
-            text.contains("hello") ||
-            text.contains("hi") ||
-            text.contains("hey") -> {
-                speakResponse("Hello. Main RAMBO hoon.")
-            }
-
-            // HOW ARE YOU
-            text.contains("how are you") ||
-            text.contains("how r you") -> {
-                speakResponse("I am doing great. Tell me what you need.")
-            }
-
-            // NAME
-            text.contains("your name") ||
-            text.contains("what is your name") -> {
-                speakResponse("My name is RAMBO.")
-            }
-
-            // OPEN CHROME
-            text.contains("open chrome") ||
-            text.contains("launch chrome") ||
-            (text.contains("chrome") && text.contains("open")) -> {
-                openApp(
-                    "com.android.chrome",
-                    "Chrome"
-                )
-            }
-
-            // OPEN YOUTUBE
-            text.contains("open youtube") ||
-            text.contains("launch youtube") ||
-            (text.contains("youtube") && text.contains("open")) -> {
-                openApp(
-                    "com.google.android.youtube",
-                    "YouTube"
-                )
-            }
-
-            // BACK
-            text == "go back" ||
-            text.contains("go back") ||
-            text.contains("back") -> {
-                onBackPressed()
-                speakResponse("Going back.")
-            }
-
-            // HOME
-            text == "go home" ||
-            text.contains("go to home") ||
-            text.contains("home screen") -> {
-                val homeIntent =
-                    Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                startActivity(homeIntent)
-                speakResponse("Going home.")
-            }
-
-            // TIME
-            text.contains("what time") ||
-            text.contains("current time") ||
-            text.contains("tell me the time") -> {
-                val time = java.text.SimpleDateFormat(
-                    "h:mm a",
-                    Locale.getDefault()
-                ).format(java.util.Date())
-
-                speakResponse("The time is $time.")
-            }
-
-            // UNKNOWN
-            else -> {
-                speakResponse(
-                    "I heard you, but I don't know that command yet."
-                )
-            }
+        if (current > 0) {
+            volumeBeforeMute = current
+            audio.setStreamVolume(stream, 0, AudioManager.FLAG_SHOW_UI)
+            speakResponse("Volume muted.")
+        } else {
+            speakResponse("Volume is already muted.")
         }
+    }
+
+    private fun unmuteMusicVolume() {
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        val stream = AudioManager.STREAM_MUSIC
+        val max = audio.getStreamMaxVolume(stream)
+        val current = audio.getStreamVolume(stream)
+
+        if (current > 0) {
+            speakResponse("Volume is already on.")
+            return
+        }
+
+        val restore = (volumeBeforeMute ?: (max * 30 / 100))
+            .coerceIn(1, max.coerceAtLeast(1))
+        audio.setStreamVolume(stream, restore, AudioManager.FLAG_SHOW_UI)
+        volumeBeforeMute = null
+        val percent = if (max == 0) 0 else restore * 100 / max
+        speakResponse("Volume restored to $percent percent.")
+    }
+
+    private fun changeMusicVolume(direction: Int) {
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        val stream = AudioManager.STREAM_MUSIC
+        val current = audio.getStreamVolume(stream)
+        val max = audio.getStreamMaxVolume(stream)
+        val target = (current + direction).coerceIn(0, max)
+        audio.setStreamVolume(stream, target, AudioManager.FLAG_SHOW_UI)
+        val percent = if (max == 0) 0 else target * 100 / max
+        speakResponse(if (direction > 0) "Volume increased to $percent percent."
+                      else "Volume decreased to $percent percent.")
+    }
+
+    private fun setMusicVolumePercent(percent: Int) {
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        val stream = AudioManager.STREAM_MUSIC
+        val max = audio.getStreamMaxVolume(stream)
+        val target = (max * percent.coerceIn(0, 100) / 100f).toInt().coerceIn(0, max)
+        audio.setStreamVolume(stream, target, AudioManager.FLAG_SHOW_UI)
+        speakResponse("Volume set to ${percent.coerceIn(0, 100)} percent.")
     }
 
     private fun openApp(
@@ -785,11 +772,14 @@ class MainActivity : Activity() {
             return
         }
 
+        val utteranceId = "rambo_response_${++responseUtteranceCounter}"
+        pendingResponseIds.add(utteranceId)
+
         textToSpeech?.speak(
             response,
-            TextToSpeech.QUEUE_FLUSH,
+            TextToSpeech.QUEUE_ADD,
             null,
-            "rambo_response"
+            utteranceId
         )
     }
 
