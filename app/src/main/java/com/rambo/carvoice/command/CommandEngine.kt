@@ -11,8 +11,7 @@ class CommandEngine {
         }
 
         val normalized = normalize(raw)
-        val parts = splitCommands(normalized)
-        return parts.map { parseSingle(it, raw) }
+        return splitCommands(normalized).map { parseSingle(it, raw) }
     }
 
     fun debugParse(input: String): String =
@@ -22,25 +21,62 @@ class CommandEngine {
 
     private fun normalize(input: String): String =
         input.lowercase(Locale.ROOT)
-            .replace(Regex("[,;]+"), " and ")
-            .replace(Regex("\\b(please|could you|can you|would you|hey rambo|rambo)\\b"), " ")
+            .replace(Regex("[,;.!?]+"), " and ")
+            .replace(
+                Regex("\\b(please|could you|can you|would you|hey rambo|rambo)\\b"),
+                " "
+            )
             .replace(Regex("\\s+"), " ")
             .trim()
 
+    private val commandStart = (
+        "open\\b|launch\\b|start\\b|go\\s+(?:to\\s+)?(?:home|back)\\b|" +
+        "home\\s+screen\\b|home\\b|back\\b|" +
+        "what\\s+(?:is\\s+)?(?:the\\s+)?time\\b|current\\s+time\\b|" +
+        "tell\\s+me\\s+(?:the\\s+)?time\\b|time\\b|" +
+        "what\\s+(?:is\\s+)?(?:the\\s+)?date\\b|today'?s\\s+date\\b|" +
+        "tell\\s+me\\s+(?:today'?s\\s+)?date\\b|date\\b|" +
+        "set\\s+(?:the\\s+)?volume\\b|(?:the\\s+)?volume\\b|" +
+        "(?:increase|decrease|raise|lower)\\s+(?:the\\s+)?volume\\b|" +
+        "mute\\b|silence\\b|unmute\\b|sound\\s+on\\b|" +
+        "hello\\b|hi\\b|hey\\b|how\\s+are\\s+you\\b|" +
+        "what\\s+is\\s+your\\s+name\\b|who\\s+are\\s+you\\b"
+    )
+
     private fun splitCommands(input: String): List<String> {
-        val separator = Regex(
-            "\\s+(?:and then|then|after that|also|and)\\s+" +
-            "(?=(?:open\\b|launch\\b|start\\b|go\\b|home\\b|back\\b|" +
-            "what\\s+time\\b|current\\s+time\\b|tell\\s+me\\s+the\\s+time\\b|" +
-            "what\\s+date\\b|today'?s\\s+date\\b|set\\s+volume\\b|" +
-            "(?:the\\s+)?volume\\b|mute\\b|unmute\\b|increase\\s+volume\\b|" +
-            "decrease\\s+volume\\b|hello\\b|hi\\b|hey\\b|how\\s+are\\s+you\\b|" +
-            "what\\s+is\\s+your\\s+name\\b|who\\s+are\\s+you\\b))"
+        val starts = Regex(
+            "\\b(?:open|launch|start|go\\s+(?:to\\s+)?(?:home|back)|" +
+            "home(?:\\s+screen)?|back|what\\s+(?:is\\s+)?(?:the\\s+)?time|" +
+            "current\\s+time|tell\\s+me\\s+(?:the\\s+)?time|time|" +
+            "what\\s+(?:is\\s+)?(?:the\\s+)?date|today'?s\\s+date|" +
+            "tell\\s+me\\s+(?:today'?s\\s+)?date|date|" +
+            "set\\s+(?:the\\s+)?volume|volume|" +
+            "(?:increase|decrease|raise|lower)\\s+(?:the\\s+)?volume|" +
+            "mute|silence|unmute|sound\\s+on|hello|hi|hey|" +
+            "how\\s+are\\s+you|what\\s+is\\s+your\\s+name|who\\s+are\\s+you)\\b"
         )
-        return input.split(separator)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .ifEmpty { listOf(input) }
+        val separator = Regex("\\s+(?:and\\s+then|then|after\\s+that|also|and)\\s+")
+        val result = mutableListOf<String>()
+        var remaining = input.trim()
+
+        while (remaining.isNotEmpty()) {
+            val match = separator.findAll(remaining).firstOrNull { candidate ->
+                val nextStart = candidate.range.last + 1
+                starts.containsMatchIn(remaining.substring(nextStart))
+            }
+
+            if (match == null) {
+                result += remaining.trim()
+                break
+            }
+
+            val left = remaining.substring(0, match.range.first).trim()
+            if (left.isNotEmpty()) result += left
+
+            remaining = remaining.substring(match.range.last + 1).trim()
+        }
+
+        return result.ifEmpty { listOf(input) }
     }
 
     private fun parsed(
@@ -53,11 +89,11 @@ class CommandEngine {
     private fun parseSingle(text: String, rawText: String): ParsedCommand {
         val value = text.trim()
 
-        // Volume percentages: "set volume to 40 percent", "volume 40%"
         val percent = Regex(
             "(?:set\\s+)?(?:the\\s+)?volume\\s+(?:to\\s+)?(\\d{1,3})\\s*(?:percent|per cent|%)"
+        ).find(value) ?: Regex(
+            "(\\d{1,3})\\s*(?:percent|per cent|%)\\s+volume"
         ).find(value)
-            ?: Regex("(\\d{1,3})\\s*(?:percent|per cent|%)\\s+volume").find(value)
 
         if (percent != null) {
             val amount = percent.groupValues[1].toIntOrNull()
@@ -101,17 +137,18 @@ class CommandEngine {
             return parsed(Command.VOLUME_SET, rawText, "0")
         }
 
-        if (Regex("\\b(open|launch|start)\\s+(chrome|google chrome)\\b").containsMatchIn(value) ||
+        if (Regex("\\b(open|launch|start)\\s+(?:google\\s+)?chrome\\b").containsMatchIn(value) ||
             value == "chrome" || value == "google chrome") {
             return parsed(Command.OPEN_APP, rawText, "Chrome", 0.98f)
         }
 
-        if (Regex("\\b(open|launch|start)\\s+(youtube|you tube)\\b").containsMatchIn(value) ||
-            value == "youtube" || value == "you tube") {
+        if (Regex("\\b(open|launch|start)\\s+(?:the\\s+)?(?:you\\s*tube|youtube)\\b").containsMatchIn(value) ||
+            value in listOf("youtube", "you tube", "you too")) {
             return parsed(Command.OPEN_APP, rawText, "YouTube", 0.98f)
         }
 
-        if (Regex("\\b(open|launch)\\s+settings\\b").containsMatchIn(value) || value == "settings") {
+        if (Regex("\\b(open|launch|start)\\s+settings\\b").containsMatchIn(value) ||
+            value == "settings") {
             return parsed(Command.OPEN_APP, rawText, "Settings", 0.98f)
         }
 
@@ -120,21 +157,21 @@ class CommandEngine {
             return parsed(Command.GO_HOME, rawText, confidence = 0.98f)
         }
 
-        if (value == "go back" || value == "back" || value == "go back please") {
+        if (value == "go back" || value == "back") {
             return parsed(Command.GO_BACK, rawText, confidence = 0.98f)
         }
 
-        if (value.contains("what time") || value.contains("current time") ||
-            value.contains("tell me the time") || value == "time") {
+        if (Regex("\\b(what\\s+(?:is\\s+)?(?:the\\s+)?time|current\\s+time|tell\\s+me\\s+(?:the\\s+)?time|time)\\b")
+                .containsMatchIn(value)) {
             return parsed(Command.GET_TIME, rawText, confidence = 0.96f)
         }
 
-        if (value.contains("what date") || value.contains("today's date") ||
-            value.contains("todays date") || value == "date") {
+        if (Regex("\\b(what\\s+(?:is\\s+)?(?:the\\s+)?date|today'?s\\s+date|tell\\s+me\\s+(?:today'?s\\s+)?date|date)\\b")
+                .containsMatchIn(value)) {
             return parsed(Command.GET_DATE, rawText, confidence = 0.96f)
         }
 
-        if (value.contains("how are you") || value.contains("how are you doing")) {
+        if (value.contains("how are you")) {
             return parsed(Command.HOW_ARE_YOU, rawText)
         }
 

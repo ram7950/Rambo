@@ -564,8 +564,8 @@ class MainActivity : Activity() {
             when (parsed.command) {
                 Command.OPEN_APP -> {
                     when (parsed.entity?.lowercase(Locale.ROOT)) {
-                        "chrome" -> openApp("com.android.chrome", "Chrome")
-                        "youtube" -> openApp("com.google.android.youtube", "YouTube")
+                        "chrome" -> openApp("Chrome")
+                        "youtube" -> openApp("YouTube")
                         "settings" -> {
                             try {
                                 startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
@@ -666,16 +666,48 @@ class MainActivity : Activity() {
         speakResponse("Volume set to ${percent.coerceIn(0, 100)} percent.")
     }
 
-    private fun openApp(
-        packageName: String,
-        appName: String
-    ) {
-        val launchIntent =
-            packageManager.getLaunchIntentForPackage(packageName)
+    private fun openApp(appName: String) {
+        val candidates = when (appName.lowercase(Locale.ROOT)) {
+            "chrome" -> listOf(
+                "com.android.chrome",
+                "com.chrome.beta",
+                "com.chrome.dev",
+                "com.chrome.canary"
+            )
+            "youtube" -> listOf(
+                "com.google.android.youtube",
+                "com.google.android.youtube.tv",
+                "com.google.android.apps.youtube.music"
+            )
+            else -> emptyList()
+        }
 
-        if (launchIntent != null) {
-            startActivity(launchIntent)
-            speakResponse("$appName is opening.")
+        for (packageName in candidates) {
+            try {
+                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                if (launchIntent != null) {
+                    startActivity(launchIntent)
+                    speakResponse("$appName is opening.")
+                    return
+                }
+            } catch (_: Exception) {
+                // Try the next installed app variant.
+            }
+        }
+
+        val url = when (appName.lowercase(Locale.ROOT)) {
+            "chrome" -> "https://www.google.com"
+            "youtube" -> "https://www.youtube.com"
+            else -> null
+        }
+
+        if (url != null) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                speakResponse("$appName app not found. Opening it in an available browser.")
+            } catch (_: Exception) {
+                speakResponse("$appName is not available on this device.")
+            }
         } else {
             speakResponse("$appName is not available.")
         }
