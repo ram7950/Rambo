@@ -12,8 +12,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import com.rambo.carvoice.voice.PiperTtsEngine
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -32,7 +31,7 @@ class MainActivity : Activity() {
     private val commandEngine = CommandEngine()
 
     private lateinit var voskSpeechEngine: VoskSpeechEngine
-    private var textToSpeech: TextToSpeech? = null
+    private var piperTts: PiperTtsEngine? = null
     private var ttsReady = false
     private var greetingPending = false
     private var responseUtteranceCounter = 0L
@@ -320,82 +319,45 @@ class MainActivity : Activity() {
     }
 
     private fun initializeTextToSpeech() {
-
-        textToSpeech = TextToSpeech(this) { resultCode ->
-
-            if (resultCode == TextToSpeech.SUCCESS) {
-
-                val result = textToSpeech?.setLanguage(Locale.US)
-
-                ttsReady =
-                    result != TextToSpeech.LANG_MISSING_DATA &&
-                    result != TextToSpeech.LANG_NOT_SUPPORTED
-
-                textToSpeech?.setSpeechRate(0.92f)
-                textToSpeech?.setPitch(1.0f)
-
-                textToSpeech?.setOnUtteranceProgressListener(
-                    object : UtteranceProgressListener() {
-
-                        override fun onStart(utteranceId: String?) {
-                            runOnUiThread {
-                                status.text = "SPEAKING"
-                            }
+        piperTts = PiperTtsEngine(this) { event, value ->
+            runOnUiThread {
+                when (event) {
+                    "ready" -> {
+                        ttsReady = true
+                        status.text = "READY"
+                        if (greetingPending) {
+                            greetingPending = false
+                            speakGreeting()
                         }
-
-                        override fun onDone(utteranceId: String?) {
-
-                            runOnUiThread {
-
-                                if (utteranceId == "rambo_greeting") {
-                                    status.text = "READY"
-
-                                    // Greeting is initialization only.
-                                    getSharedPreferences(
-                                        "rambo_state",
-                                        MODE_PRIVATE
-                                    ).edit()
-                                        .putBoolean("initialized", true)
-                                        .apply()
-
-                                    ramboInitialized = true
-                                    steeringListeningRequested = false
-                                } else if (utteranceId != null) {
-                                    pendingResponseIds.remove(utteranceId)
-                                    if (pendingResponseIds.isEmpty()) {
-                                        status.text = "READY"
-                                        resetAvatar()
-                                    }
-                                }
-                            }
-                        }
-
-                        override fun onError(utteranceId: String?) {
-                            runOnUiThread {
-                                if (utteranceId != null) {
-                                    pendingResponseIds.remove(utteranceId)
-                                }
-                                if (pendingResponseIds.isEmpty()) {
-                                    status.text = "READY"
-                                    resetAvatar()
-                                }
+                    }
+                    "start" -> status.text = "SPEAKING"
+                    "done" -> {
+                        if (value == "rambo_greeting") {
+                            status.text = "READY"
+                            getSharedPreferences("rambo_state", MODE_PRIVATE)
+                                .edit().putBoolean("initialized", true).apply()
+                            ramboInitialized = true
+                            steeringListeningRequested = false
+                        } else if (value != null) {
+                            pendingResponseIds.remove(value)
+                            if (pendingResponseIds.isEmpty()) {
+                                status.text = "READY"
+                                resetAvatar()
                             }
                         }
                     }
-                )
-
-                if (greetingPending) {
-                    greetingPending = false
-                    speakGreeting()
+                    "error" -> {
+                        ttsReady = false
+                        status.text = "TTS ERROR"
+                        result.text = value ?: "Piper initialization failed"
+                    }
+                    "utterance_error" -> {
+                        value?.substringBefore(":")?.let { pendingResponseIds.remove(it) }
+                        status.text = "TTS ERROR"
+                        if (pendingResponseIds.isEmpty()) resetAvatar()
+                        result.text = value ?: "Piper speech failed"
+                    }
                 }
-
-            } else {
-
-                ttsReady = false
-                status.text = "TTS UNAVAILABLE"
-
-                // Do not automatically open microphone.
-                // Listening starts only from an explicit user interaction.
             }
         }
     }
@@ -460,26 +422,15 @@ class MainActivity : Activity() {
     }
 
     private fun speakGreeting() {
-
         status.text = "READY"
         result.text = "Hi, I am RAMBO"
 
-        if (!ttsReady) {
-
+        if (!ttsReady || piperTts == null) {
             greetingPending = true
             status.text = "STARTING VOICE"
-
             return
         }
-
-        textToSpeech?.stop()
-
-        textToSpeech?.speak(
-            "Hi, I am RAMBO",
-            TextToSpeech.QUEUE_FLUSH,
-            null,
-            "rambo_greeting"
-        )
+        piperTts?.speak("Hi, I am RAMBO", "rambo_greeting", true)
     }
 
     private fun setupVoskSpeechEngine() {
@@ -790,15 +741,14 @@ class MainActivity : Activity() {
     }
 
     private fun speakResponse(response: String) {
-
         runOnUiThread {
             status.text = "SPEAKING"
             result.text = response
         }
 
-        if (!ttsReady || textToSpeech == null) {
+        if (!ttsReady || piperTts == null) {
             runOnUiThread {
-                status.text = "IDLE"
+                status.text = "TTS UNAVAILABLE"
                 resetAvatar()
             }
             return
@@ -806,13 +756,7 @@ class MainActivity : Activity() {
 
         val utteranceId = "rambo_response_${++responseUtteranceCounter}"
         pendingResponseIds.add(utteranceId)
-
-        textToSpeech?.speak(
-            response,
-            TextToSpeech.QUEUE_ADD,
-            null,
-            utteranceId
-        )
+        piperTts?.speak(response, utteranceId, false)
     }
 
     private var speechSessionActive = false
@@ -882,9 +826,8 @@ private fun startListening() {
             voskSpeechEngine.release()
         }
 
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
-        textToSpeech = null
+        piperTts?.release()
+        piperTts = null
 
         super.onDestroy()
     }

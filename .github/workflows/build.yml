@@ -47,6 +47,21 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar \
             --output app/libs/sherpa-onnx-1.13.8.aar
 
+      - name: Download Piper Amy voice model
+        run: |
+          mkdir -p app/src/main/assets/tts
+          curl --fail --location --retry 3 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2 \
+            --output /tmp/rambo-piper-model.tar.bz2
+          tar -xjf /tmp/rambo-piper-model.tar.bz2 -C /tmp
+          MODEL_DIR="$(find /tmp -maxdepth 3 -type f -name 'en_US-amy-low.onnx' -printf '%h\n' | head -n 1)"
+          test -n "$MODEL_DIR"
+          cp "$MODEL_DIR/en_US-amy-low.onnx" app/src/main/assets/tts/
+          cp "$MODEL_DIR/tokens.txt" app/src/main/assets/tts/
+          cp -R "$MODEL_DIR/espeak-ng-data" app/src/main/assets/tts/
+          test -s app/src/main/assets/tts/en_US-amy-low.onnx
+          test -s app/src/main/assets/tts/tokens.txt
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
