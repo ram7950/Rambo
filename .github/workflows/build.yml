@@ -40,6 +40,13 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
+      - name: Download Sherpa-ONNX Android AAR
+        run: |
+          mkdir -p app/libs
+          curl --fail --location --retry 3 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar \
+            --output app/libs/sherpa-onnx-1.13.8.aar
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 

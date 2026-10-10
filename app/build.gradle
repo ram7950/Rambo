@@ -32,7 +32,7 @@ android {
 }
 
 dependencies {
-    implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8'
+    implementation(name: 'sherpa-onnx-1.13.8', ext: 'aar')
     implementation 'net.java.dev.jna:jna:5.18.1@aar'
     implementation 'com.alphacephei:vosk-android:0.3.75@aar'
 }
