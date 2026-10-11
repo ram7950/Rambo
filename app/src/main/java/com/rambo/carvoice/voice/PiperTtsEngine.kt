@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.SystemClock
+import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
@@ -132,7 +134,14 @@ class PiperTtsEngine(
                 val tts = engine ?: error("Piper engine unavailable")
                 onEvent("start", request.id)
 
+                // PIPER_LATENCY_DIAGNOSTICS
+                val generationStart = SystemClock.elapsedRealtime()
                 val generated = tts.generate(request.text, speed = 0.92f)
+                val generationMs = SystemClock.elapsedRealtime() - generationStart
+                Log.i(
+                    "PiperTTS",
+                    "generation_ms=$generationMs text_chars=${request.text.length} samples=${generated.samples.size}"
+                )
                 val samples = generated.samples
                 check(samples.isNotEmpty()) { "Piper generated empty audio" }
 
